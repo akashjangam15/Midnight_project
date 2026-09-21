@@ -1,0 +1,96 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// counter.compact — the public / private boundary, made explicit
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Ledger state is PUBLIC. Everything declared with `ledger` is written into
+// the contract's on-chain state, is readable by anyone with an indexer, and
+// lives forever. It is the *only* thing this contract publishes.
+//
+//   count             — running total of all increments. Public.
+//   updateCount       — how many times increment() has been called. Public.
+//   publishedMessage  — a message that was deliberately disclosed. Empty
+//                       until publishMessage() is called. Public.
+//
+// Witnesses are PRIVATE. A `witness` is a function the *prover* runs locally;
+// its inputs come from the private state that never leaves the device, and
+// only the resulting proof is submitted. Witness values are not ledger
+// fields and cannot be read off the chain by anyone.
+//
+//   privateStep()     — magnitude of each increment. Never published as-is:
+//                       increment() discloses only the running SUM, so two
+//                       increments of 3 and 5 are indistinguishable on-chain
+//                       from one increment of 8. Private.
+//   privateMessage()  — the counter's secret note. Reads off-chain only, and
+//                       reaches the ledger solely through the explicit
+//                       disclose() in publishMessage(). Private until then.
+//
+// disclose() is the deliberate, auditable crossing point. The Compact
+// compiler's disclosure analysis refuses to let a witness-derived value flow
+// into public state without one, so every place private data becomes public
+// is a single greppable call. There are exactly two in this contract, both
+// inside circuits whose names say what they publish:
+//
+//   increment()      discloses count + step (the sum, NOT the step) and
+//                    updateCount + 1.
+//   publishMessage() discloses the private message verbatim.
+//
+// Nothing else in this contract can move a witness value onto the chain.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Public ledger state ────────────────────────────────────────────────────
+
+/** PUBLIC: running total. Only ever moved by increment()/reset(). */
+export ledger count: Uint<32>;
+
+/** PUBLIC: number of successful increment() calls. */
+export ledger updateCount: Uint<32>;
+
+/** PUBLIC: empty until publishMessage() deliberately discloses the note. */
+export ledger publishedMessage: Opaque<"string">;
+
+// ─── Private witnesses ──────────────────────────────────────────────────────
+
+/** PRIVATE: how much the next increment() should add. Supplied off-chain. */
+witness privateStep(): Uint<32>;
+
+/** PRIVATE: the counter's secret note. Only publishMessage() can reveal it. */
+witness privateMessage(): Opaque<"string">;
+
+// ─── Circuits ───────────────────────────────────────────────────────────────
+
+/**
+ * Add the private step to the public total.
+ *
+ * The step itself is never published — only `count + step` crosses over
+ * through disclose(), and the step is unconstrained (beyond > 0), so the
+ * public total does not pin down any individual step.
+ */
+export circuit increment(): [] {
+  const step = privateStep();
+  assert(step > 0, "privateStep must be greater than zero");
+  const total = count + step;
+  assert(total <= 4294967295, "count would overflow Uint<32>");
+  count = disclose(total as Uint<32>);
+  updateCount = disclose((updateCount + 1) as Uint<32>);
+}
+
+/**
+ * The one circuit that publishes a private string. Calling it is an explicit
+ * decision to disclose; not calling it keeps the note off-chain.
+ */
+export circuit publishMessage(): [] {
+  publishedMessage = disclose(privateMessage());
+}
+
+/**
+ * Reset the public totals. Touches no witness, so it discloses nothing
+ * private — the values assigned here are literals the ledger already knows.
+ */
+export circuit reset(): [] {
+  count = 0;
+  updateCount = 0;
+}
