@@ -1,0 +1,42 @@
+# ─── Secrets: MUST NOT be committed ──────────────────────────────────────────
+# Contains the preview wallet's 24-word BIP-39 recovery phrase. Anyone holding
+# it controls the wallet. Kept local on purpose; SESSION_CONTEXT2.txt is the
+# redaction-free session log that IS safe to commit.
+SESSION_CONTEXT.txt
+
+# Wallet seeds / deploy addresses (per project, also covered by nested .gitignore)
+.midnight-state.json
+
+# Encrypted private state stores (witness values live here)
+.midnight-wallet-state/
+midnight-level-db/
+*-state/
+
+# ─── Runtime / generated ─────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+coverage/
+logs/
+*.log
+*.pid
+tmp/
+temp/
+
+# Compact compiler output (regenerate with `npm run compile`)
+managed/
+contracts/managed/
+
+# Local git backups kept during history migrations
+.git-backups/
+
+# ─── Environment / OS / IDE ──────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
