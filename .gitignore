@@ -3,6 +3,9 @@
 # it controls the wallet. Kept local on purpose; SESSION_CONTEXT2.txt is the
 # redaction-free session log that IS safe to commit.
 SESSION_CONTEXT.txt
+SESSION_CONTEXT2.txt
+SESSION_CONTEXT3.txt
+
 
 # Wallet seeds / deploy addresses (per project, also covered by nested .gitignore)
 .midnight-state.json
@@ -40,4 +43,3 @@ Thumbs.db
 .vscode/settings.json
 *.swp
 *.swo
-*.SESSION_CONTEXT2
