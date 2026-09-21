@@ -40,3 +40,4 @@ Thumbs.db
 .vscode/settings.json
 *.swp
 *.swo
+*.SESSION_CONTEXT2
