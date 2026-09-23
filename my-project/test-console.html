@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Console Test</title>
+  <style>
+    body { background: #000; color: #fff; font-family: monospace; padding: 20px; }
+    #console { background: #111; padding: 10px; margin-top: 20px; max-height: 400px; overflow-y: auto; }
+    .error { color: #ff6b81; }
+    .log { color: #4ad991; }
+  </style>
+</head>
+<body>
+  <h1>Console Log Viewer</h1>
+  <p>Open this file in a browser to see console messages.</p>
+  <div id="console"></div>
+  <script>
+    const consoleEl = document.getElementById('console');
+    const origLog = console.log;
+    const origError = console.error;
+    const origWarn = console.warn;
+    
+    console.log = function(...args) {
+      origLog.apply(console, args);
+      addMessage('log', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    };
+    console.error = function(...args) {
+      origError.apply(console, args);
+      addMessage('error', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    };
+    console.warn = function(...args) {
+      origWarn.apply(console, args);
+      addMessage('warn', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    };
+    
+    function addMessage(type, msg) {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = `[${type}] ${msg}`;
+      consoleEl.appendChild(div);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+  </script>
+  <script type="module" src="http://localhost:5173/src/main.tsx"></script>
+</body>
+</html>

@@ -37,6 +37,8 @@ export function WalletConnect({
   onRescan,
 }: WalletConnectProps) {
   const connected = status === 'connected';
+  const connecting = status === 'connecting';
+  const networkMismatch = status === 'error' && error?.includes('network');
 
   return (
     <section className="panel">
@@ -49,6 +51,7 @@ export function WalletConnect({
         Target network: <code>{networkId}</code>
       </p>
 
+      {/* ── No wallet detected ── */}
       {!connected && wallets.length === 0 && (
         <div className="empty">
           <p>No Midnight wallet detected.</p>
@@ -62,6 +65,7 @@ export function WalletConnect({
         </div>
       )}
 
+      {/* ── Wallet available, not connected ── */}
       {!connected && wallets.length > 0 && (
         <ul className="wallet-list">
           {wallets.map((wallet) => (
@@ -77,15 +81,16 @@ export function WalletConnect({
                 type="button"
                 className="button"
                 onClick={() => onConnect(wallet.id)}
-                disabled={status === 'connecting'}
+                disabled={connecting}
               >
-                {status === 'connecting' ? 'Connecting…' : 'Connect'}
+                {connecting ? 'Connecting…' : 'Connect'}
               </button>
             </li>
           ))}
         </ul>
       )}
 
+      {/* ── Connected ── */}
       {connected && snapshot && (
         <div className="wallet-connected">
           <div className="row">
@@ -93,13 +98,13 @@ export function WalletConnect({
             <span className="row__value">{walletName ?? 'connected'}</span>
           </div>
           <div className="row">
-            <span className="row__label">Wallet network</span>
+            <span className="row__label">Network</span>
             <span className="row__value">{snapshot.configuration?.networkId ?? '—'}</span>
           </div>
           <div className="row">
-            <span className="row__label">Unshielded address</span>
+            <span className="row__label">Address</span>
             <span className="row__value mono" title={snapshot.unshieldedAddress ?? undefined}>
-              {snapshot.unshieldedAddress ? short(snapshot.unshieldedAddress) : '—'}
+              {snapshot.unshieldedAddress ? short(snapshot.unshieldedAddress, 10, 6) : '—'}
             </span>
           </div>
           <div className="row">
@@ -130,7 +135,28 @@ export function WalletConnect({
         </div>
       )}
 
-      {error && <p className="error">{error}</p>}
+      {/* ── Error states ── */}
+      {error && (
+        <div className="error-block">
+          <p className="error">{error}</p>
+          {networkMismatch && (
+            <p className="error-hint">
+              Your wallet is on a different network. Switch to <code>{networkId}</code> or disconnect and reconnect.
+            </p>
+          )}
+          {!networkMismatch && status === 'error' && wallets.length > 0 && (
+            <div className="error-actions">
+              <button type="button" className="button button--ghost" onClick={onRefresh}>
+                Rescan Wallets
+              </button>
+              <span className="error-hint">or</span>
+              <button type="button" className="button button--ghost" onClick={() => window.location.reload()}>
+                Refresh Page
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

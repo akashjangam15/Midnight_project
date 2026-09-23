@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Wallet Debug</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #0b0b12; color: #e9e9f2; }
+    .section { margin: 20px 0; padding: 15px; background: #14141f; border-radius: 8px; }
+    .ok { color: #4ad991; }
+    .error { color: #ff6b81; }
+    .warn { color: #ffcc66; }
+    pre { background: #0e0e17; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Lace Wallet Debug</h1>
+  
+  <div class="section">
+    <h3>1. Is Lace Installed?</h3>
+    <pre id="check1">Checking...</pre>
+  </div>
+  
+  <div class="section">
+    <h3>2. window.midnight Object</h3>
+    <pre id="check2">Checking...</pre>
+  </div>
+  
+  <div class="section">
+    <h3>3. Available Wallets</h3>
+    <pre id="check3">Checking...</pre>
+  </div>
+  
+  <div class="section">
+    <h3>4. Quick Test</h3>
+    <button onclick="testConnect()">Try Connect (will show prompt)</button>
+    <pre id="check4"></pre>
+  </div>
+
+  <script>
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    
+    async function checkWallet() {
+      const check1 = document.getElementById('check1');
+      const check2 = document.getElementById('check2');
+      const check3 = document.getElementById('check3');
+      
+      // Check 1: Is window.midnight defined?
+      if (typeof window.midnight === 'undefined') {
+        check1.innerHTML = '<span class="error">❌ window.midnight is undefined</span>\n\nPossible causes:\n- Lace extension not installed\n- Lace not enabled for this site\n- Try reloading the page';
+      } else {
+        check1.innerHTML = '<span class="ok">✅ window.midnight exists</span>';
+      }
+      
+      // Check 2: Show the object
+      check2.textContent = typeof window.midnight === 'object' 
+        ? JSON.stringify(Object.fromEntries(Object.entries(window.midnight).map(([k, v]) => [k, { name: v.name, apiVersion: v.apiVersion, rdns: v.rdns }])), null, 2)
+        : 'undefined';
+      
+      // Check 3: List wallets
+      if (window.midnight) {
+        const wallets = Object.entries(window.midnight).map(([id, api]) => ({
+          id,
+          name: api.name,
+          apiVersion: api.apiVersion,
+          rdns: api.rdns
+        }));
+        check3.textContent = JSON.stringify(wallets, null, 2);
+      } else {
+        check3.textContent = 'No wallets found';
+      }
+    }
+    
+    async function testConnect() {
+      const check4 = document.getElementById('check4');
+      check4.textContent = 'Attempting to connect...';
+      
+      if (!window.midnight) {
+        check4.textContent = '❌ Cannot connect: Lace not detected';
+        return;
+      }
+      
+      const wallets = Object.entries(window.midnight);
+      if (wallets.length === 0) {
+        check4.textContent = '❌ No wallets found';
+        return;
+      }
+      
+      const [firstId, wallet] = wallets[0];
+      check4.textContent = `Found wallet: ${wallet.name}\nTrying to connect...`;
+      
+      try {
+        const networkId = 'undeployed'; // or 'preview', 'preprod'
+        check4.textContent += `\nConnecting to network: ${networkId}...`;
+        const api = await wallet.connect(networkId);
+        check4.textContent += `\n✅ Connected!\n\nAPI: ${JSON.stringify(api, null, 2)}`;
+      } catch (err) {
+        check4.textContent += `\n❌ Connection failed:\n${err.message || err}`;
+      }
+    }
+    
+    checkWallet();
+    setInterval(checkWallet, 2000); // Re-check every 2 seconds
+  </script>
+</body>
+</html>

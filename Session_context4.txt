@@ -1,0 +1,89 @@
+# Session Context: Midnight Counter dApp Frontend — Lace Wallet Connection Debug
+
+## Project Overview
+Building a React + Vite frontend dApp for a Midnight blockchain counter contract (`counter.compact`) that demonstrates:
+- Public ledger state (count, updateCount, publishedMessage)
+- Private witness inputs (step, message) that never leave the browser
+- Zero-knowledge proof generation for on-chain circuit calls
+
+## Repository
+- Path: `/c/Users/ASUS/OneDrive/Desktop/midnight_v1/my-project/`
+- Branch: main
+- Vite dev server runs on port 5173
+
+## Stack
+- React 19 + Vite 8
+- @midnight-ntwrk/midnight-js-* (4.1.1)
+- @midnight-ntwrk/compact-runtime (0.16.0)
+- @midnight-ntwrk/dapp-connector-api (4.0.1)
+- TypeScript
+
+## Key Files
+- `src/App.tsx` — main app with wallet + circuit panels
+- `src/components/WalletConnect.tsx` — connect/disconnect UI, error states
+- `src/components/CircuitCall.tsx` — circuit call button, loading state, privacy badge
+- `src/hooks/useMidnight.ts` — DApp Connector hook (wallet detection, connect, snapshot)
+- `src/witnesses.ts` — private state + witness implementations for counter.compact
+- `src/styles.css` — dark theme styling
+- `.env` — environment config (created this session)
+
+## Current Issue Being Debugged
+**Lace wallet connection failing with "Network ID mismatch (InvalidRequest)" error**
+
+Even though:
+- `.env` has `VITE_NETWORK_ID=preprod`
+- Lace wallet is on Preprod network
+- Connection still fails
+
+## Investigation Findings
+1. Initial error was "network id mismatched" — fixed by creating `.env` with `VITE_NETWORK_ID=preprod`
+2. After fix, new error: "Remote API with channel 'feature-flags' was shutdown: object can no longer be used"
+3. After refresh, error became: "Network ID mismatch (InvalidRequest)"
+4. **Current hypothesis**: Case sensitivity issue — Lace may be sending "Preprod" (capital P) while dApp sends "preprod" (lowercase)
+
+## Changes Made This Session
+
+### useMidnight.ts
+- Added extensive console logging to `detectWallets()` and `connect()`
+- Added pre-connect network check via `wallet.api.getConfiguration()`
+- Added case-insensitive network ID comparison
+- Normalized `DEFAULT_NETWORK_ID` to lowercase
+- Added better error messages for different failure modes
+
+### WalletConnect.tsx
+- Enhanced error block with Rescan + Refresh Page buttons
+- Added `error-actions` CSS class for button layout
+
+### styles.css
+- Added `.error-block`, `.error-hint`, `.error-actions`, `.privacy-badge`, `.loading-state`, `.spinner`, `.error-panel` styles
+
+### New Debug Files Created
+- `debug-wallet.html` — standalone page to test Lace detection/connection
+- `test-console.html` — page that captures console logs/errors
+
+## Network Configuration
+```bash
+# .env file contents:
+VITE_NETWORK_ID=preprod
+```
+
+Midnight network IDs (lowercase per DApp connector spec):
+- `undeployed` — local devnet
+- `preview` — Midnight Preview testnet
+- `preprod` — Midnight Preprod testnet
+
+## How to Run
+```bash
+cd my-project
+npm run dev        # http://localhost:5173/
+npm run build:web  # Production build
+npm run preview    # Preview on port 4173
+```
+
+## Next Steps
+1. Check browser console (F12) on connect attempt — logs now show:
+   - Wallet's reported network from `getConfiguration()`
+   - Whether case-insensitive comparison passes
+   - Exact point of failure in connect flow
+2. If case sensitivity was the issue, it should now work
+3. If still failing, may need to investigate Lace's actual network ID format or API version compatibility

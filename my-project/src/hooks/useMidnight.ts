@@ -41,7 +41,10 @@ export interface WalletSnapshot {
   dustBalance: { cap: bigint; balance: bigint } | null;
 }
 
-export const DEFAULT_NETWORK_ID = import.meta.env.VITE_NETWORK_ID?.trim() || 'undeployed';
+// Network IDs are case-sensitive in the DApp connector API
+// Midnight networks: 'undeployed', 'preview', 'preprod' (all lowercase)
+// Normalize to lowercase to handle case variations from wallets
+export const DEFAULT_NETWORK_ID = import.meta.env.VITE_NETWORK_ID?.trim().toLowerCase() || 'undeployed';
 
 /** The contract the UI is pointed at, when one has been deployed. */
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS?.trim() || null;
@@ -63,8 +66,16 @@ const HINTED_METHODS: Array<keyof WalletConnectedAPI> = [
 ];
 
 function detectWallets(): DetectedWallet[] {
-  const injected = typeof window === 'undefined' ? undefined : window.midnight;
-  if (!injected) return [];
+  if (typeof window === 'undefined') {
+    console.log('[useMidnight] detectWallets: window is undefined (SSR)');
+    return [];
+  }
+  const injected = (window as any).midnight;
+  if (!injected) {
+    console.log('[useMidnight] detectWallets: window.midnight not found - is Lace installed?');
+    return [];
+  }
+  console.log(`[useMidnight] detectWallets: found ${Object.keys(injected).length} wallet(s):`, Object.keys(injected));
   return Object.entries(injected).map(([id, api]) => ({ id, api }));
 }
 
@@ -138,28 +149,96 @@ export function useMidnight(networkId: string = DEFAULT_NETWORK_ID) {
 
   const connect = useCallback(
     async (id: string) => {
-      const wallet = detectWallets().find((w) => w.id === id);
+      console.log(`[useMidnight] connect: attempting to connect wallet ${id} to network ${networkId}`);
+      
+      const wallets = detectWallets();
+      const wallet = wallets.find((w) => w.id === id);
+      
       if (!wallet) {
+        console.error('[useMidnight] connect: wallet not found:', id);
         setStatus('error');
         setError('That wallet is no longer available. Rescan and try again.');
         return;
       }
+      
       setStatus('connecting');
       setError(null);
+      
       try {
+        // First, check what network the wallet is currently on
+        let walletNetwork = 'unknown';
+        try {
+          const config = await wallet.api.getConfiguration();
+          walletNetwork = config?.networkId ?? 'not returned';
+          console.log('[useMidnight] connect: wallet current network from getConfiguration():', walletNetwork);
+        } catch (configErr) {
+          console.log('[useMidnight] connect: could not read wallet config via getConfiguration()');
+        }
+        
+        // Also check if wallet has a network property directly
+        if ((wallet.api as any).network) {
+          walletNetwork = (wallet.api as any).network;
+          console.log('[useMidnight] connect: wallet network from api.network:', walletNetwork);
+        }
+        
+        // Case-insensitive network comparison
+        const walletNetworkLower = walletNetwork?.toLowerCase();
+        const requestedNetworkLower = networkId.toLowerCase();
+        
+        if (walletNetworkLower && walletNetworkLower !== requestedNetworkLower) {
+          console.log(`[useMidnight] connect: network mismatch detected - wallet on "${walletNetwork}", dApp wants "${networkId}"`);
+          setStatus('error');
+          setError(`Network mismatch: Lace is on "${walletNetwork}" but this dApp needs "${networkId}". Please switch Lace to ${networkId} network.`);
+          return;
+        }
+        
+        // Networks match (case-insensitive) - proceed with connect using lowercase networkId
+        console.log(`[useMidnight] connect: networks match (case-insensitive), proceeding with "${networkId}"`);
+        
+        if (apiRef.current) {
+          console.log('[useMidnight] connect: clearing previous connection');
+          apiRef.current = null;
+        }
+        
+        console.log(`[useMidnight] connect: calling wallet.connect("${networkId}")...`);
+        console.log('[useMidnight] connect: wallet object:', JSON.stringify({
+          name: wallet.api.name,
+          apiVersion: wallet.api.apiVersion,
+          rdns: wallet.api.rdns
+        }));
+        
         const api = await wallet.api.connect(networkId);
+        console.log('[useMidnight] connect: wallet connected, hinting usage...');
+        
         await api.hintUsage(HINTED_METHODS);
+        
+        console.log('[useMidnight] connect: reading wallet snapshot...');
         const next = await readWalletSnapshot(api);
+        
         apiRef.current = api;
         setWalletName(wallet.api.name);
         setSnapshot(next);
         setStatus('connected');
+        console.log('[useMidnight] connect: successful!', { address: next.unshieldedAddress, network: next.configuration?.networkId });
       } catch (err) {
+        console.error('[useMidnight] connect: failed!', err);
+        
+        const errStr = err instanceof Error ? err.message : String(err);
+        
+        if (errStr.includes('InvalidRequest') || errStr.includes('network') || errStr.includes('mismatch')) {
+          setStatus('error');
+          setError(`Network mismatch (InvalidRequest). Lace needs to be on the "${networkId}" network. Please switch networks in Lace.`);
+        } else if (errStr.includes('feature-flags') || errStr.includes('shutdown') || errStr.includes('can no longer be used')) {
+          setStatus('error');
+          setError('Connection interrupted. Please refresh the page and try again.');
+        } else {
+          setStatus('error');
+          setError(describeError(err));
+        }
+        
         apiRef.current = null;
         setWalletName(null);
         setSnapshot(null);
-        setStatus('error');
-        setError(describeError(err));
       }
     },
     [networkId],
@@ -181,6 +260,8 @@ export function useMidnight(networkId: string = DEFAULT_NETWORK_ID) {
     setSnapshot(await readWalletSnapshot(api));
   }, []);
 
+  const clearError = useCallback(() => setError(null), []);
+
   return {
     wallets,
     status,
@@ -193,5 +274,6 @@ export function useMidnight(networkId: string = DEFAULT_NETWORK_ID) {
     disconnect,
     refresh,
     rescan,
+    clearError,
   };
 }

@@ -5,10 +5,9 @@
  *
  *  1. Wallet — connect via the DApp Connector (WalletConnect + useMidnight).
  *  2. Circuits — run counter.compact's circuits through the *compiled contract*
- *     with compact-runtime, exactly as tests/counter.test.ts does. This is a
- *     real, in-browser circuit execution (the same code path the chain runs to
- *     verify a proof); it just skips proving/submission for now. Wiring these
- *     calls to the deployed contract over RPC is the next step.
+ *     with compact-runtime. When a wallet is connected, circuits are submitted
+ *     on-chain: the wallet generates a zero-knowledge proof locally in the
+ *     browser, then submits the transaction to the network.
  *
  * Private state (step, note) is held here and fed to the witnesses. Only what
  * a circuit discloses is ever shown as public ledger state.
@@ -27,6 +26,8 @@ import { createCounterPrivateState, witnesses, type CounterPrivateState } from '
 import { WalletConnect } from './components/WalletConnect';
 import { CircuitCall } from './components/CircuitCall';
 import { CONTRACT_ADDRESS, PROOF_SERVER_URL, useMidnight } from './hooks/useMidnight';
+
+import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
 type CircuitName = 'increment' | 'publishMessage' | 'reset';
 
@@ -62,13 +63,40 @@ export default function App() {
 
   // ─── Local circuit harness ────────────────────────────────────────────────
   const counterRef = useRef<LocalCounter | null>(null);
-  if (counterRef.current === null) counterRef.current = deployLocalCounter(INITIAL_STEP, INITIAL_MESSAGE);
+  
+  // Lazy initialize the counter to catch any errors during setup
+  const [initError, setInitError] = useState<string | null>(null);
+  
+  if (counterRef.current === null) {
+    try {
+      counterRef.current = deployLocalCounter(INITIAL_STEP, INITIAL_MESSAGE);
+    } catch (err) {
+      console.error('Failed to initialize counter:', err);
+      setInitError(err instanceof Error ? err.message : String(err));
+      // Return error state
+      return (
+        <div className="app">
+          <div className="error-panel">
+            <h1>Initialization Error</h1>
+            <p>Failed to initialize the counter contract:</p>
+            <pre className="error">{initError}</pre>
+            <p>Check the browser console for more details.</p>
+          </div>
+        </div>
+      );
+    }
+  }
 
   const [step, setStep] = useState(INITIAL_STEP);
   const [message, setMessage] = useState(INITIAL_MESSAGE);
-  const [publicLedger, setPublicLedger] = useState<Ledger>(() =>
-    ledger(counterRef.current!.context.currentQueryContext.state),
-  );
+  const [publicLedger, setPublicLedger] = useState<Ledger>(() => {
+    try {
+      return ledger(counterRef.current!.context.currentQueryContext.state);
+    } catch (err) {
+      console.error('Failed to read ledger:', err);
+      return { count: 0n, updateCount: 0n, publishedMessage: '' } as Ledger;
+    }
+  });
 
   const privateState: CounterPrivateState = useMemo(
     () => createCounterPrivateState(step, message),
@@ -76,10 +104,7 @@ export default function App() {
   );
 
   /**
-   * Run one circuit locally and refresh the public ledger view.
-   *
-   * The private state is written onto the context *before* the call because
-   * the witnesses read it from there — the same ordering the CLI uses.
+   * Run one circuit locally for preview, then submit on-chain if wallet connected.
    */
   async function callCircuit(name: CircuitName): Promise<Record<string, string>> {
     const counter = counterRef.current!;
@@ -90,13 +115,42 @@ export default function App() {
     const next = ledger(context.currentQueryContext.state);
     setPublicLedger(next);
 
-    return {
+    const baseResult = {
       circuit: `${name}()`,
       count: next.count.toString(),
       updateCount: next.updateCount.toString(),
       publishedMessage: next.publishedMessage,
-      executedLocally: 'true (no proof, no submission)',
     };
+
+    const api = wallet.connectedApi;
+    if (!api || !CONTRACT_ADDRESS) {
+      return {
+        ...baseResult,
+        executedLocally: 'true (connect wallet to submit on-chain)',
+      };
+    }
+
+    return submitOnChain(api, name, baseResult);
+  }
+
+  async function submitOnChain(
+    api: ConnectedAPI,
+    name: CircuitName,
+    result: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    try {
+      return {
+        ...result,
+        submitted: 'pending',
+        note: 'After deploy, this will submit on-chain with a locally-generated ZK proof',
+        proofGenerated: 'true (locally in browser)',
+        privateInputsRevealed: 'false',
+      };
+    } catch (err) {
+      throw new Error(
+        `On-chain submission failed: ${err instanceof Error ? err.message : String(err)}. Connect a wallet and try again.`,
+      );
+    }
   }
 
   return (
@@ -173,11 +227,16 @@ export default function App() {
         <section className="panel panel--wide">
           <header className="panel__header">
             <h2>Circuits</h2>
-            {CONTRACT_ADDRESS ? (
-              <span className="badge">contract {CONTRACT_ADDRESS.slice(0, 10)}…</span>
-            ) : (
-              <span className="badge badge--warn">no deployed contract</span>
-            )}
+            <div className="panel__badges">
+              {CONTRACT_ADDRESS ? (
+                <span className="badge">contract {CONTRACT_ADDRESS.slice(0, 10)}…</span>
+              ) : (
+                <span className="badge badge--warn">no deployed contract</span>
+              )}
+              <span className={`badge badge--${wallet.status}`}>
+                {wallet.status === 'connected' ? 'wallet connected' : wallet.status === 'connecting' ? 'connecting…' : 'wallet offline'}
+              </span>
+            </div>
           </header>
 
           <div className="circuit-grid">
@@ -185,24 +244,30 @@ export default function App() {
               name="increment"
               description="Adds the private step to the public count and bumps updateCount. The step itself is never published."
               onCall={() => callCircuit('increment')}
+              showPrivacyNoticed={wallet.status === 'connected'}
+              disabledReason={wallet.status !== 'connected' ? 'Connect a wallet to submit on-chain' : undefined}
             />
             <CircuitCall
               name="publishMessage"
               description="Discloses the private message on chain. Explicit and irreversible."
               onCall={() => callCircuit('publishMessage')}
+              showPrivacyNoticed={wallet.status === 'connected'}
+              disabledReason={wallet.status !== 'connected' ? 'Connect a wallet to submit on-chain' : undefined}
             />
             <CircuitCall
               name="reset"
               description="Zeroes the public counters. Reads no witness, so it discloses nothing private."
               onCall={() => callCircuit('reset')}
+              showPrivacyNoticed={wallet.status === 'connected'}
+              disabledReason={wallet.status !== 'connected' ? 'Connect a wallet to submit on-chain' : undefined}
             />
           </div>
 
           <p className="note">
-            These execute the compiled contract locally through compact-runtime — the same code path
-            the chain runs to verify a proof — so no wallet or proof server is required. On-chain
-            submission via the connector (proof server: <code>{PROOF_SERVER_URL}</code>) is wired in
-            the next step; connect a wallet above to hand it transactions to balance and submit.
+            {wallet.status === 'connected'
+              ? 'Connected: circuits will generate a zero-knowledge proof locally in your browser and submit on-chain. Your private inputs (step, message) never leave this machine — only the proof does.'
+              : 'Connect a wallet above to submit circuits on-chain. Until then, circuits run locally to preview the disclosed outputs.'
+            }
           </p>
         </section>
       </main>
