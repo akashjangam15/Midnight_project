@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "outDir": "./dist",
@@ -15,6 +17,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "managed"]
 }
