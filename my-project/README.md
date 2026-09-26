@@ -7,7 +7,8 @@ makes every disclosure a single auditable call.
 
 - **Contract:** `contracts/counter.compact` — 3 circuits, 3 public ledger fields, 2 private witnesses
 - **Tests:** 5 unit tests, no network required (~2s)
-- **Network:** Midnight `preview`
+- **Network:** Midnight `preprod` (deployed)
+- **Frontend:** React 19 + Vite 8 (`npm run dev`), DApp Connector (Lace) wallet support
 - **Toolchain:** Compact compiler `0.31.1`, Midnight.js `4.1.1`, Node ≥ 22
 
 ---
@@ -102,10 +103,11 @@ npm test                                 # 5 unit tests, no network needed
 npm run build                            # tsc --noEmit
 
 npm run proof-server:start               # docker compose up -d (proof server)
-npm run deploy -- --network preview      # compile-ready artifacts → deploy
+npm run deploy -- --network preprod      # compile-ready artifacts → deploy
+                                         # (preprod: npx tsx src/deploy-preprod-fast.ts)
 npm run cli                              # interact with the deployed contract
-npm run check-balance -- --network preview
-npm run network preview                  # set/show the active network
+npm run check-balance -- --network preprod
+npm run network preprod                  # set/show the active network
 npm run test:e2e                         # read-only check against the deployment
 npm run clean                            # delete managed/, state file, wallet cache
 ```
@@ -122,6 +124,9 @@ compile → deploy.
 | `PRIVATE_STATE_PASSWORD`    | deploy/cli     | a local-devnet placeholder (≥16 chars)   |
 | `MIDNIGHT_FAUCET_TIMEOUT_MS`| deploy         | `600000` (10 min funding wait)           |
 | `MIDNIGHT_WALLET_MNEMONIC`  | all            | unset — use the wallet in `.midnight-state.json` |
+| `VITE_NETWORK_ID`           | web UI         | `preprod` — must match Lace's network (lowercase) |
+| `VITE_CONTRACT_ADDRESS`     | web UI         | the preprod contract address above |
+| `VITE_PROOF_SERVER_URL`     | web UI         | `http://127.0.0.1:6300` |
 
 `COUNTER_STEP` / `COUNTER_MESSAGE` set *private* state. Changing them changes
 nothing on chain — the deployed ledger still starts at `count = 0`.
@@ -154,19 +159,28 @@ compile, nothing else here will run.
 
 ## Deployment
 
-Deployed to `preview` with the wallet in `.midnight-state.json`
+Deployed to `preprod` with the wallet in `.midnight-state.json`
 (gitignored — back it up; it holds the seed and recovery phrase).
 
 | | |
 | --- | --- |
-| Network | `preview` |
-| Contract address | `799afe68b3353f26ec9103fce6c9b3a67a85952ee8cf9e59134ce5662b4eb718` |
-| Deployer | `mn_addr_preview1euad6hf8ghztzn8vt686ywgm2e95hu36rltp9vwy07lrfrh82fasa53yh9` |
-| Deployed at | 2026-09-21T10:06:14Z |
+| Network | `preprod` |
+| Contract address | `6745a61f76cfce55cd4701213a2f79940c919d62725208628a523a0554f69fe3` |
+| Deployer | `mn_addr_preprod1e8rhyn2ulgwpznqarcduj9tu68650dr5qlxt2xmsvaywc0trccys3j0uzx` |
+| Deployed at | 2026-09-26T05:44:33Z |
+| Deploy script | `src/deploy-preprod-fast.ts` — fast-path sync gate + 10-min checkpointing (works around preprod fresh-wallet genesis sync, servicedesk #104) |
 
 The deploy was verified by reading the on-chain state back through the indexer:
 `count = 0`, `updateCount = 0`, `publishedMessage = ""` — a public ledger that says
 nothing about the private step or note it was deployed with.
+
+The web UI (`.env`, already set) points at this deployment:
+
+```bash
+VITE_NETWORK_ID=preprod
+VITE_CONTRACT_ADDRESS=6745a61f76cfce55cd4701213a2f79940c919d62725208628a523a0554f69fe3
+VITE_PROOF_SERVER_URL=http://127.0.0.1:6300
+```
 
 A deploy is **not** upgradeable: the address is derived from the contract's
 initial state, so editing `counter.compact` and redeploying produces a *new*
@@ -174,19 +188,27 @@ address. The old instance keeps its last state forever. (Midnight has an
 opt-in maintenance-authority mechanism for upgradeable contracts; this one does
 not use it.)
 
-`npm run deploy` overwrites `deployments.preview.address`, so record the old
+`npm run deploy` overwrites `deployments.<network>.address`, so record the old
 address elsewhere before redeploying if you still need it. Because the address is
 public while the private state is local, a *redeploy* starts with an empty
 private state — set it before calling any circuit.
+
+Preprod note: a fresh wallet's `waitForSyncedState()` may never complete on
+preprod (servicedesk #104). `src/deploy-preprod-fast.ts` deploys with a
+fast-path gate instead — see the deploy section above. Wallet sync checkpoints
+are written every 10 min under `.midnight-wallet-state/preprod/`; keep that
+directory — it is what makes a re-run resume instead of restart.
 
 ---
 
 ## Roadmap
 
-- **Level 1 (this step):** contract, witnesses, tests, deploy to preview
-- **Level 2:** frontend in `src/` so the counter is driven from a browser
+- **Level 1 (done):** contract, witnesses, tests, deployed to **preprod**
+- **Level 2 (done):** frontend in `src/` — wallet connect via the DApp Connector
+  plus local circuit preview; on-chain submission from the browser via the
+  preprod contract address in `.env`
 - **Level 3:** CI/CD in `.github/workflows/` — compile + `npm test` on every
-  push, `npm run test:e2e` against preview
+  push, `npm run test:e2e` against preprod
 
 ## Notes for anyone running this in WSL
 

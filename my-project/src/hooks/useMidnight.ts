@@ -76,7 +76,7 @@ function detectWallets(): DetectedWallet[] {
     return [];
   }
   console.log(`[useMidnight] detectWallets: found ${Object.keys(injected).length} wallet(s):`, Object.keys(injected));
-  return Object.entries(injected).map(([id, api]) => ({ id, api }));
+  return Object.entries(injected).map(([id, api]) => ({ id, api: api as InitialAPI }));
 }
 
 function describeError(error: unknown): string {
@@ -163,63 +163,60 @@ export function useMidnight(networkId: string = DEFAULT_NETWORK_ID) {
       
       setStatus('connecting');
       setError(null);
-      
+
       try {
-        // First, check what network the wallet is currently on
-        let walletNetwork = 'unknown';
-        try {
-          const config = await wallet.api.getConfiguration();
-          walletNetwork = config?.networkId ?? 'not returned';
-          console.log('[useMidnight] connect: wallet current network from getConfiguration():', walletNetwork);
-        } catch (configErr) {
-          console.log('[useMidnight] connect: could not read wallet config via getConfiguration()');
-        }
-        
-        // Also check if wallet has a network property directly
-        if ((wallet.api as any).network) {
-          walletNetwork = (wallet.api as any).network;
-          console.log('[useMidnight] connect: wallet network from api.network:', walletNetwork);
-        }
-        
-        // Case-insensitive network comparison
-        const walletNetworkLower = walletNetwork?.toLowerCase();
-        const requestedNetworkLower = networkId.toLowerCase();
-        
-        if (walletNetworkLower && walletNetworkLower !== requestedNetworkLower) {
-          console.log(`[useMidnight] connect: network mismatch detected - wallet on "${walletNetwork}", dApp wants "${networkId}"`);
-          setStatus('error');
-          setError(`Network mismatch: Lace is on "${walletNetwork}" but this dApp needs "${networkId}". Please switch Lace to ${networkId} network.`);
-          return;
-        }
-        
-        // Networks match (case-insensitive) - proceed with connect using lowercase networkId
-        console.log(`[useMidnight] connect: networks match (case-insensitive), proceeding with "${networkId}"`);
-        
+        // Per the connector spec, the InitialAPI exposes only rdns/name/icon/
+        // apiVersion + connect(networkId). There is NO way to query the
+        // wallet's active network before connecting — getConfiguration()
+        // exists only on the ConnectedAPI. The wallet itself enforces the
+        // network: connect() rejects (InvalidRequest) on mismatch, which the
+        // catch below maps to a user-facing hint.
         if (apiRef.current) {
           console.log('[useMidnight] connect: clearing previous connection');
           apiRef.current = null;
         }
-        
+
         console.log(`[useMidnight] connect: calling wallet.connect("${networkId}")...`);
-        console.log('[useMidnight] connect: wallet object:', JSON.stringify({
-          name: wallet.api.name,
-          apiVersion: wallet.api.apiVersion,
-          rdns: wallet.api.rdns
-        }));
-        
         const api = await wallet.api.connect(networkId);
-        console.log('[useMidnight] connect: wallet connected, hinting usage...');
-        
-        await api.hintUsage(HINTED_METHODS);
-        
+
+        // hintUsage is part of the ConnectedAPI type, but some wallet builds
+        // (observed with Lace) ship without it. It is a courtesy signal — the
+        // wallet may use it to pre-grant permissions — so a missing or
+        // rejecting implementation must never fail the connection.
+        if (typeof api.hintUsage === 'function') {
+          try {
+            await api.hintUsage(HINTED_METHODS);
+            console.log('[useMidnight] connect: usage hints accepted');
+          } catch (hintErr) {
+            console.log('[useMidnight] connect: hintUsage rejected (non-fatal):', describeError(hintErr));
+          }
+        } else {
+          console.log('[useMidnight] connect: wallet does not implement hintUsage — skipping');
+        }
+
         console.log('[useMidnight] connect: reading wallet snapshot...');
         const next = await readWalletSnapshot(api);
-        
+
+        // Post-connect sanity: now getConfiguration() is legal. connect()
+        // should have already rejected on a wrong network, so treat a
+        // mismatch here as an anomaly rather than a user error.
+        const connectedNetwork = next.configuration?.networkId;
+        if (connectedNetwork && connectedNetwork.toLowerCase() !== networkId.toLowerCase()) {
+          console.error(
+            `[useMidnight] connect: post-connect network mismatch — wallet reports "${connectedNetwork}", dApp wants "${networkId}"`,
+          );
+          setStatus('error');
+          setError(
+            `Wallet reports network "${connectedNetwork}" but this dApp needs "${networkId}". Switch Lace to ${networkId} and reconnect.`,
+          );
+          return;
+        }
+
         apiRef.current = api;
         setWalletName(wallet.api.name);
         setSnapshot(next);
         setStatus('connected');
-        console.log('[useMidnight] connect: successful!', { address: next.unshieldedAddress, network: next.configuration?.networkId });
+        console.log('[useMidnight] connect: successful!', { address: next.unshieldedAddress, network: connectedNetwork });
       } catch (err) {
         console.error('[useMidnight] connect: failed!', err);
         

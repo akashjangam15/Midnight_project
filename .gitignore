@@ -2,11 +2,10 @@
 # Contains the preview wallet's 24-word BIP-39 recovery phrase. Anyone holding
 # it controls the wallet. Kept local on purpose; SESSION_CONTEXT2.txt is the
 # redaction-free session log that IS safe to commit.
-SESSION_CONTEXT.txt
-SESSION_CONTEXT3.txt
-SESSION_CONTEXT2.txt
+[Ss]ession_context*.txt
+[Ff]inaldeployment_context.txt
+resume_deploy_context.txt
 campaign-idea-frame.txt
-C:\Users\ASUS\OneDrive\Desktop\midnight_v1\Session_context4.txt
 # Wallet seeds / deploy addresses (per project, also covered by nested .gitignore)
 .midnight-state.json
 
@@ -33,7 +32,8 @@ contracts/managed/
 # Local git backups kept during history migrations
 .git-backups/
 
-# ─── Environment / OS / IDE ──────────────────────────────────────────────────
+# ─── Environment / OS
+ / IDE ──────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local

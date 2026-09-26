@@ -8,18 +8,22 @@
 
 | Network  | Address                                                      |
 |----------|--------------------------------------------------------------|
-| Preview  | `799afe68b3353f26ec9103fce6c9b3a67a85952ee8cf9e59134ce5662b4eb718` |
-| Preprod  | _not deployed yet — [PASTE ADDRESS AFTER DEPLOY]_            |
+| Preprod  | `6745a61f76cfce55cd4701213a2f79940c919d62725208628a523a0554f69fe3` |
 
-Deployer wallet: `mn_addr_preview1euad6hf8ghztzn8vt686ywgm2e95hu36rltp9vwy07lrfrh82fasa53yh9`
-Deployed: 2026-09-21T10:06:14Z · Recorded in `my-project/.midnight-state.json` → `deployments.preview.address`
+| | |
+|---|---|
+| Deployer | `mn_addr_preprod1e8rhyn2ulgwpznqarcduj9tu68650dr5qlxt2xmsvaywc0trccys3j0uzx` |
+| Deployed at | 2026-09-26T05:44:33Z |
+
+Recorded in `my-project/.midnight-state.json` → `deployments.preprod.address`.
 
 Verified on chain — the public ledger read back as `count = 0`, `updateCount = 0`, `publishedMessage = ""`:
 
 ```bash
 cd my-project && npm run test:e2e
 # ✅ e2e-check passed
-#    contractAddress: 799afe68b3353f26ec9103fce6c9b3a67a85952ee8cf9e59134ce5662b4eb718
+#    contractAddress: 6745a61f76cfce55cd4701213a2f79940c919d62725208628a523a0554f69fe3
+#    network:          preprod
 ```
 
 ---
@@ -65,7 +69,7 @@ cd my-project && grep -n "disclose" contracts/counter.compact
 
 ## Tech Stack
 
-- **Midnight network** — privacy-first blockchain; target network here is `preview`
+- **Midnight network** — privacy-first blockchain; deployed to `preprod`
 - **Compact** — Midnight's ZK smart-contract language (compiler pinned to `0.31.1`)
 - **Node.js v22** — deploy tooling and tests (`>=22.0.0` required by the SDK)
 - **Docker** — local proof server (`midnightntwrk/proof-server:8.1.0`), plus a full local devnet in `docker-compose.yml`
@@ -84,7 +88,7 @@ cd my-project && grep -n "disclose" contracts/counter.compact
 | Compact compiler | `compact update 0.31.1` — pins the version this toolchain expects |
 | Docker + Docker Compose | Needed for the proof server; proofs are generated locally even when deploying to a public network |
 | Git | To clone the repo |
-| Funded wallet | Only for deploying to preview/preprod — the deploy script prints the address and waits for the faucet (10 min default). A local devnet needs no funding. |
+| Funded wallet | Only for deploying — the deploy script prints the address. The preprod wallet is already funded (5,000 tNIGHT). A local devnet needs no funding. |
 | Disk | ~1 GB for the two projects' `node_modules` |
 
 ---
@@ -112,7 +116,9 @@ npm run proof-server:start
 
 # 6. Deploy. Selects/creates a wallet, waits for faucet funding if the
 #    balance is 0, registers NIGHT for DUST, then deploys and prints the address.
-npm run deploy -- --network preview
+#    NOTE: on preprod use the fast-path script instead (see Deployment above):
+#    npx tsx src/deploy-preprod-fast.ts
+npm run deploy -- --network preprod
 
 # 7. Talk to the deployed contract
 npm run cli
@@ -121,9 +127,8 @@ npm run cli
 Other useful commands:
 
 ```bash
-npm run setup -- --network preview    # steps 5+4+6 in one go
-npm run network preview               # set/show the active network
-npm run check-balance -- --network preview
+npm run network preprod               # set/show the active network
+npm run check-balance -- --network preprod
 npm run build                         # tsc --noEmit
 npm run clean                         # delete managed/, state file, wallet cache
 ```
@@ -307,6 +312,6 @@ The counter in `my-project/` is the smallest useful piece of the platform, built
 Suggested captures:
 
 1. `docs/screenshots/compile.png` — output of `npm run compile` (`Compiling 3 circuits:` and the four `managed/counter/` directories)
-2. `docs/screenshots/deploy.png` — the deploy tail showing `✅ Contract deployed successfully!` and `Contract Address: 799afe68…b718`
+2. `docs/screenshots/deploy.png` — the deploy tail showing `✅ Contract deployed successfully!` and `Contract Address: 6745a61f…69fe3`
 3. `docs/screenshots/tests.png` — `npm test` showing `# pass 5`
 4. `docs/screenshots/cli.png` — the CLI's public-ledger vs private-state menu output

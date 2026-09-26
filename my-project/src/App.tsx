@@ -25,7 +25,8 @@ import { Contract, ledger, type Ledger } from '../managed/counter/contract/index
 import { createCounterPrivateState, witnesses, type CounterPrivateState } from './witnesses';
 import { WalletConnect } from './components/WalletConnect';
 import { CircuitCall } from './components/CircuitCall';
-import { CONTRACT_ADDRESS, PROOF_SERVER_URL, useMidnight } from './hooks/useMidnight';
+import { CONTRACT_ADDRESS, useMidnight } from './hooks/useMidnight';
+import { connectOnChain, NETWORK, type OnChainSession } from './onchain';
 
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
@@ -63,6 +64,8 @@ export default function App() {
 
   // ─── Local circuit harness ────────────────────────────────────────────────
   const counterRef = useRef<LocalCounter | null>(null);
+  /** Live connection to the DEPLOYED contract (wallet path); null when offline. */
+  const sessionRef = useRef<OnChainSession | null>(null);
   
   // Lazy initialize the counter to catch any errors during setup
   const [initError, setInitError] = useState<string | null>(null);
@@ -115,42 +118,61 @@ export default function App() {
     const next = ledger(context.currentQueryContext.state);
     setPublicLedger(next);
 
-    const baseResult = {
-      circuit: `${name}()`,
-      count: next.count.toString(),
-      updateCount: next.updateCount.toString(),
-      publishedMessage: next.publishedMessage,
-    };
-
     const api = wallet.connectedApi;
     if (!api || !CONTRACT_ADDRESS) {
+      if (!api) sessionRef.current = null; // wallet disconnected — drop the session
       return {
-        ...baseResult,
+        circuit: `${name}()`,
+        count: next.count.toString(),
+        updateCount: next.updateCount.toString(),
+        publishedMessage: next.publishedMessage,
         executedLocally: 'true (connect wallet to submit on-chain)',
       };
     }
 
-    return submitOnChain(api, name, baseResult);
+    return submitOnChain(api, name, CONTRACT_ADDRESS);
   }
 
+  /**
+   * Real on-chain submission through the connected wallet (Lace):
+   * the browser proves the circuit locally, the wallet balances + signs,
+   * the sealed transaction goes to the chain, and the public ledger is
+   * re-read from the indexer — the source of truth.
+   */
   async function submitOnChain(
     api: ConnectedAPI,
     name: CircuitName,
-    result: Record<string, string>,
+    contractAddress: string,
   ): Promise<Record<string, string>> {
-    try {
-      return {
-        ...result,
-        submitted: 'pending',
-        note: 'After deploy, this will submit on-chain with a locally-generated ZK proof',
-        proofGenerated: 'true (locally in browser)',
-        privateInputsRevealed: 'false',
-      };
-    } catch (err) {
-      throw new Error(
-        `On-chain submission failed: ${err instanceof Error ? err.message : String(err)}. Connect a wallet and try again.`,
-      );
+    if (!sessionRef.current) {
+      // First on-chain call (or wallet was reconnected): build providers and
+      // bind to the deployed contract. Fetches zk keys, opens the private
+      // state store (IndexedDB), resolves the wallet's public keys.
+      sessionRef.current = await connectOnChain(api, NETWORK, contractAddress);
     }
+    const session = sessionRef.current;
+
+    // The witness reads PRIVATE state from the provider at proving time —
+    // persist what the UI currently holds before the call.
+    await session.setPrivateState(privateState);
+
+    const tx = await session.callTx[name]();
+
+    // Refresh the public ledger from the indexer.
+    const onChain = await session.readLedger();
+    setPublicLedger(onChain as Ledger);
+
+    return {
+      circuit: `${name}()`,
+      count: onChain.count.toString(),
+      updateCount: onChain.updateCount.toString(),
+      publishedMessage: onChain.publishedMessage,
+      submitted: 'true',
+      txId: String(tx?.public?.txId ?? '(unknown)'),
+      blockHeight: tx?.public?.blockHeight != null ? String(tx.public.blockHeight) : '(indexing)',
+      proofGenerated: 'true (locally in browser)',
+      privateInputsRevealed: 'false',
+    };
   }
 
   return (
